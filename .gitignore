@@ -1,0 +1,4 @@
+*.gz
+data/
+*.pyc
+.DS_Store
