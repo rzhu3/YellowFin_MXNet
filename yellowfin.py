@@ -47,6 +47,8 @@ class YFOptimizer(mx.optimizer.Optimizer):
     self._grad_norm_squared_avg = 0.0
     self._h_avg = 0.0
     self._dist_to_opt_avg = 0.0
+    # For testing purpose only
+    self._test_res = []
 
   def create_state(self, index, weight):
     momentum = zeros(weight.shape, weight.context, dtype=weight.dtype)
@@ -128,10 +130,12 @@ class YFOptimizer(mx.optimizer.Optimizer):
     h_min, h_max = self.curvature_range()
     C = self.grad_variance().asscalar()
     D = self.dist_to_opt().asscalar()
+    #     res = [opt._h_max, opt._h_min, opt._grad_var, opt._dist_to_opt]
     if self.num_update > 1:
       mu_t, lr_t = self.single_step_mu_lr(C, D, h_min, h_max)
       self.momentum = beta * self.momentum + (1 - beta) * mu_t
       self.lr = beta * self.lr + (1 - beta) * lr_t
+    self._test_res = [h_max, h_min, C, D, self.lr, self.momentum]
     self.clear_grad_norm_info()
 
   def is_end_iter(self):
