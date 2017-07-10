@@ -39,7 +39,7 @@ class YFOptimizer(mx.optimizer.Optimizer):
     # a. Used in curvature estimation
     self._h_min = 0.0
     self._h_max = 0.0
-    self._h_window = zeros(curv_win_width)
+    self._h_window = np.zeros(curv_win_width)
     # b. Used in grad_variance
     self._grad_var = None
     # c. Used in distance to opt. estimation
@@ -86,12 +86,12 @@ class YFOptimizer(mx.optimizer.Optimizer):
   def curvature_range(self):
     curv_win = self._h_window
     beta = self.beta
-    curv_win[(self.num_update-1) % self.curv_win_width] = self._grad_norm_squared.asscalar()
+    curv_win[(self.num_update-1) % self.curv_win_width] = self._grad_norm_squared
     valid_end = min(self.curv_win_width, self.num_update)
-    self._h_min = beta * self._h_min + (1 - beta) * mx.ndarray.min(curv_win[:valid_end])
-    self._h_max = beta * self._h_max + (1 - beta) * mx.ndarray.max(curv_win[:valid_end])
+    self._h_min = beta * self._h_min + (1 - beta) * curv_win[:valid_end].min()
+    self._h_max = beta * self._h_max + (1 - beta) * curv_win[:valid_end].max()
     debias_factor = self.zero_debias_factor()
-    return self._h_min.asscalar() / debias_factor, self._h_max.asscalar() / debias_factor
+    return self._h_min / debias_factor, self._h_max / debias_factor
 
   def grad_variance(self):
     debias_factor = self.zero_debias_factor()
@@ -101,7 +101,7 @@ class YFOptimizer(mx.optimizer.Optimizer):
 
   def dist_to_opt(self):
     beta = self.beta
-    self._grad_norm_avg = beta * self._grad_norm_avg + (1 - beta) * sqrt(self._grad_norm_squared)
+    self._grad_norm_avg = beta * self._grad_norm_avg + (1 - beta) * math.sqrt(self._grad_norm_squared)
     # self._h_avg = beta * self._h_avg + (1 - beta) * self._grad_norm_squared
     # self._dist_to_opt_avg = beta * self._dist_to_opt_avg + (1 - beta) * self._grad_norm_avg / self._h_avg
     self._dist_to_opt_avg = beta * self._dist_to_opt_avg + (1 - beta) * self._grad_norm_avg / self._grad_norm_squared_avg
@@ -125,11 +125,12 @@ class YFOptimizer(mx.optimizer.Optimizer):
   def after_apply(self):
     beta = self.beta
 
+    self._grad_norm_squared = self._grad_norm_squared.asscalar()
     self._grad_norm_squared_avg = self.beta * self._grad_norm_squared_avg + (1 - self.beta) * self._grad_norm_squared
 
     h_min, h_max = self.curvature_range()
     C = self.grad_variance().asscalar()
-    D = self.dist_to_opt().asscalar()
+    D = self.dist_to_opt()
     #     res = [opt._h_max, opt._h_min, opt._grad_var, opt._dist_to_opt]
     if self.num_update > 1:
       mu_t, lr_t = self.single_step_mu_lr(C, D, h_min, h_max)
@@ -165,7 +166,7 @@ class YFOptimizer(mx.optimizer.Optimizer):
                                   lr=lr, wd=wd, **kwargs)
       self.update_grad_norm_and_var(index, grad, state)
       if self.is_end_iter():
-        print self._grad_var.asscalar(), self._grad_norm_squared.asscalar()
+        # print self._grad_var.asscalar(), self._grad_norm_squared.asscalar()
         # self.clear_grad_norm_info()
         self.after_apply()
       #   print self.lr, self.momentum

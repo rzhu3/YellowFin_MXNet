@@ -1,13 +1,28 @@
 import os
 import mxnet as mx
 import numpy as np
-from yellowfin import YFOptimizer
-# from torch.autograd import Variable
+from yellowfin import *
 import time
 
-n_dim = 1000000
-n_iter = 50
+n_dim = 10
+n_iter = 2
 
+@mx.initializer.register
+class CustomInit(mx.initializer.Initializer):
+    """Initializes the weights to a scalar value.
+    Parameters
+    ----------
+    value : float
+        Fill value.
+    """
+    def __init__(self):
+        super(CustomInit, self).__init__()
+
+    def _init_weight(self, _, arr):
+        arr[:] = 1
+
+    def _init_bias(self, _, arr):
+        arr[:] = 1
 
 def tune_everything(x0squared, C, T, gmin, gmax):
   # First tune based on dynamic range
@@ -43,19 +58,20 @@ def tune_everything(x0squared, C, T, gmin, gmax):
 
   return alpha_star, mustar
 
-
 def test_measurement(zero_debias=True):
-  # opt = YFOptimizer(momentum=0.0, learning_rate=1.0, zero_bias=zero_debias)
 
-  n_dim = 10
   data = np.array([np.ones(n_dim)])
   label = np.array([1])
   batch_size = 1
   train_iter = mx.io.NDArrayIter(data, label, batch_size, label_name='linear_output_label')
 
   net = mx.sym.Variable('data')
-  net = mx.sym.FullyConnected(net, name='fc1', num_hidden=1)
+  weight = mx.sym.Variable(name='fc1_weight')
+  bias = mx.sym.Variable(name='fc1_bias')
+  # label_sym = mx.sym.Variable(name='label')
+  net = mx.sym.FullyConnected(data=net, weight=weight, bias=bias, name='fc1', num_hidden=1)
   net = mx.sym.LinearRegressionOutput(net, name='linear_output')
+  # net = mx.sym.Makeloss(net)
 
   mod = mx.mod.Module(symbol=net,
                       context=mx.cpu(),
@@ -64,9 +80,9 @@ def test_measurement(zero_debias=True):
   # allocate memory given the input data and label shapes
   mod.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label)
   # initialize parameters by uniform random numbers
-  mod.init_params(initializer=mx.init.Constant(value=1))
+  mod.init_params(CustomInit())
   # use SGD with learning rate 0.1 to train
-  mod.init_optimizer(optimizer='YFOptimizer', optimizer_params=(('learning_rate', 0.1),))
+  mod.init_optimizer(optimizer='YFOptimizer', optimizer_params=(('learning_rate', 1.0), ('momentum', 0.0), ('zero_bias', zero_debias)))
   # use accuracy as the metric
   metric = mx.metric.create('mse')
 
@@ -78,7 +94,7 @@ def test_measurement(zero_debias=True):
   target_dist = 0.0
 
   # train 5 epochs, i.e. going over the data iter one pass
-  for epoch in range(5):
+  for epoch in range(n_iter):
     train_iter.reset()
     metric.reset()
     for batch in train_iter:
@@ -91,9 +107,9 @@ def test_measurement(zero_debias=True):
 
       i = epoch
       g_norm_squared_avg = 0.999 * g_norm_squared_avg \
-                           + 0.001 * np.sum(((i + 1) * np.ones([n_dim + 1, ])) ** 2)
+                           + 0.001 * np.sum(((-1 ** i) * (10-i) * np.ones([n_dim + 1, ])) ** 2)
       g_norm_avg = 0.999 * g_norm_avg \
-                   + 0.001 * np.linalg.norm((i + 1) * np.ones([n_dim + 1, ]))
+                   + 0.001 * np.linalg.norm((-1 ** i) * (10-i) * np.ones([n_dim + 1, ]))
       g_avg = 0.999 * g_avg + 0.001 * (i + 1)
 
       target_h_max = 0.999 * target_h_max + 0.001 * (i + 1) ** 2 * (n_dim + 1)
@@ -105,6 +121,8 @@ def test_measurement(zero_debias=True):
         target_var = g_norm_squared_avg - g_avg ** 2 * (n_dim + 1)
       target_dist = 0.999 * target_dist + 0.001 * g_norm_avg / g_norm_squared_avg
 
+      if i == 0:
+        continue
       if zero_debias:
         # print "iter ", i, " h max ", res[0], target_h_max/(1-0.999**(i + 1) ), \
         #   " h min ", res[1], target_h_min/(1-0.999**(i + 1) ), \
@@ -115,8 +133,8 @@ def test_measurement(zero_debias=True):
         assert np.abs(target_var - res[2]) < np.abs(target_var) * 1e-3
         assert np.abs(target_dist / (1 - 0.999 ** (i + 1)) - res[3]) < np.abs(res[3]) * 1e-3
       else:
-        # print "iter ", i, " h max ", res[0], target_h_max, " h min ", res[1], target_h_min, \
-        # " var ", res[2], target_var, " dist ", res[3], target_dist
+        print "iter ", i, " h max ", res[0], target_h_max, " h min ", res[1], target_h_min, \
+        " var ", res[2], target_var, " dist ", res[3], target_dist
         assert np.abs(target_h_max - res[0]) < np.abs(target_h_max) * 1e-3
         assert np.abs(target_h_min - res[1]) < np.abs(target_h_min) * 1e-3
         assert np.abs(target_var - res[2]) < np.abs(res[2]) * 1e-3
@@ -126,9 +144,7 @@ def test_measurement(zero_debias=True):
 
 
 def test_lr_mu(zero_debias=False):
-  # opt = YFOptimizer(momentum=0.0, learning_rate=1.0, zero_bias=zero_debias)
 
-  n_dim = 10
   data = np.array([np.ones(n_dim)])
   label = np.array([1])
   batch_size = 1
@@ -147,7 +163,7 @@ def test_lr_mu(zero_debias=False):
   # initialize parameters by uniform random numbers
   mod.init_params(initializer=mx.init.Constant(value=1))
   # use SGD with learning rate 0.1 to train
-  mod.init_optimizer(optimizer='YFOptimizer', optimizer_params=(('learning_rate', 0.1),))
+  mod.init_optimizer(optimizer='YFOptimizer', optimizer_params={'learning_rate':0.1, 'momentum': 0.0, 'zero_bias': zero_debias})
   # use accuracy as the metric
   metric = mx.metric.create('mse')
 
@@ -161,7 +177,7 @@ def test_lr_mu(zero_debias=False):
   target_mu = 0.0
 
   # train 5 epochs, i.e. going over the data iter one pass
-  for epoch in range(5):
+  for epoch in range(n_iter):
     train_iter.reset()
     metric.reset()
     for batch in train_iter:
@@ -226,21 +242,21 @@ def test_lr_mu(zero_debias=False):
 
 if __name__ == "__main__":
   start = time.time()
-  test_measurement(zero_debias=False)
-  end = time.time()
-  print "measurement test without zero_debias done in ", (end - start) / float(n_iter), " s/iter!"
-
-  start = time.time()
   test_measurement(zero_debias=True)
   end = time.time()
   print "measurement test with zero_debias done in ", (end - start) / float(n_iter), " s/iter!"
 
   start = time.time()
-  test_lr_mu(zero_debias=False)
+  test_measurement(zero_debias=False)
   end = time.time()
-  print "lr and mu test done with zero_debias in ", (end - start) / float(n_iter), " s/iter!"
+  print "measurement test without zero_debias done in ", (end - start) / float(n_iter), " s/iter!"
 
-  start = time.time()
-  test_lr_mu(zero_debias=True)
-  end = time.time()
-  print "lr and mu test done with zero_debias in ", (end - start) / float(n_iter), " s/iter!"
+  # start = time.time()
+  # test_lr_mu(zero_debias=False)
+  # end = time.time()
+  # print "lr and mu test done with zero_debias in ", (end - start) / float(n_iter), " s/iter!"
+  #
+  # start = time.time()
+  # test_lr_mu(zero_debias=True)
+  # end = time.time()
+  # print "lr and mu test done with zero_debias in ", (end - start) / float(n_iter), " s/iter!"
