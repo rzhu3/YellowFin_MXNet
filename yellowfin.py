@@ -1,7 +1,7 @@
 import numpy as np
 import math
 import mxnet as mx
-from mxnet.ndarray import zeros, NDArray, square, sqrt
+from mxnet.ndarray import zeros, NDArray, square, sqrt, abs, sum, norm
 
 @mx.optimizer.Optimizer.register
 class YFOptimizer(mx.optimizer.Optimizer):
@@ -27,34 +27,30 @@ class YFOptimizer(mx.optimizer.Optimizer):
   def __init__(self, momentum=0.0, beta=0.999, curv_win_width=20, zero_bias=True, **kwargs):
     super(YFOptimizer, self).__init__(**kwargs)
     self.momentum = momentum
-    self.mom_mult = {}
     self.beta = beta
     self.curv_win_width = 20
     self.zero_bias = zero_bias
     # The following are global states for YF tuner
-    self._iter = 0
-    self._grad_norm_squared_avg = 0.0
-    # 1. Used in curvature estimation
+    # 1. Calculate grad norm for all indices
+    self._grad_norm = None
+    # 2. Calculate grad norm squared for all indices
+    self._grad_norm_squared = None
+    # 3. Update state parameters for YF after each iteration
+    # a. Used in curvature estimation
     self._h_min = 0.0
     self._h_max = 0.0
     self._h_window = np.zeros(curv_win_width)
-    # 3. Used in distance to opt. estimation
+    # b. Used in grad_variance
+    self._grad_var = None
+    # c. Used in distance to opt. estimation
     self._grad_norm_avg = 0.0
+    self._grad_norm_squared_avg = 0.0
     self._h_avg = 0.0
     self._dist_to_opt_avg = 0.0
-
-    # self.set_mom_mult({})
-
-  def _get_mom(self, index):
-    if index in self.mom_mult:
-      return self.mom_mult[index]
-    else:
-      return 0.0
+    # For testing purpose only
+    self._test_res = []
 
   def create_state(self, index, weight):
-    # 2. These two state tensors are used in grad variance estimation
-    # grad_avg = None
-    # grad_avg_squared = None
     momentum = zeros(weight.shape, weight.context, dtype=weight.dtype)
     grad_avg = zeros(weight.shape, weight.context, dtype=weight.dtype)
     grad_avg_squared = zeros(weight.shape, weight.context, dtype=weight.dtype)
@@ -63,42 +59,52 @@ class YFOptimizer(mx.optimizer.Optimizer):
   def zero_debias_factor(self):
     if not self.zero_bias:
       return 1.0
-    return 1.0 - self.beta ** (self._iter + 1)
+    return 1.0 - self.beta ** (self.num_update)
 
-  def curvature_range(self, grad_norm):
+  def clear_grad_norm_info(self):
+    # self._grad_norm = None
+    self._grad_norm_squared = None
+    self._grad_var = None
+
+  def update_grad_norm_and_var(self, index, grad, state):
+    _, grad_avg, _ = state
+    # _, grad_avg = state
+    grad_avg[:] = self.beta * grad_avg + (1 - self.beta) * grad
+    # grad_avg_squared[:] = self.beta * grad_avg_squared + (1-self.beta) * square(grad)
+
+    grad_norm_squared = sum(grad * grad)
+    if self._grad_norm_squared is None:
+      self._grad_norm_squared = grad_norm_squared
+    else:
+      self._grad_norm_squared += grad_norm_squared
+
+    if self._grad_var is None:
+      self._grad_var = sum(grad_avg * grad_avg)
+    else:
+      self._grad_var += sum(grad_avg * grad_avg)
+
+  def curvature_range(self):
     curv_win = self._h_window
     beta = self.beta
-    curv_win[self._iter % self.curv_win_width] = grad_norm ** 2
-    valid_end = min(self.curv_win_width, self._iter + 1)
+    curv_win[(self.num_update-1) % self.curv_win_width] = self._grad_norm_squared
+    valid_end = min(self.curv_win_width, self.num_update)
     self._h_min = beta * self._h_min + (1 - beta) * curv_win[:valid_end].min()
     self._h_max = beta * self._h_max + (1 - beta) * curv_win[:valid_end].max()
-    if self.zero_bias:
-      debias_factor = self.zero_debias_factor()
-      return self._h_min / debias_factor, self._h_max / debias_factor
-    else:
-      return self._h_min, self._h_max
-
-  def grad_variance(self, grad, state):
-    beta = self.beta
-
-    _, grad_avg, grad_avg_squared = state
-    # _, grad_avg = state
-    grad_avg[:] = beta * grad_avg + (1 - beta) * grad
-    grad_avg_squared[:] = beta * grad_avg_squared + (1 - beta) * grad * grad
-
     debias_factor = self.zero_debias_factor()
-    tmp1 = mx.ndarray.sum(grad_avg * grad_avg)
-    tmp2 = mx.ndarray.sum(grad_avg_squared)
-    # tmp2 = self._grad_norm_squared_avg
-    grad_var = tmp1 / -(debias_factor ** 2) + tmp2 / debias_factor
-    return mx.ndarray.abs(grad_var).asscalar()
+    return self._h_min / debias_factor, self._h_max / debias_factor
 
-  def dist_to_opt(self, grad_norm):
+  def grad_variance(self):
+    debias_factor = self.zero_debias_factor()
+    self._grad_var /= -(debias_factor ** 2)
+    self._grad_var += self._grad_norm_squared_avg/debias_factor
+    return self._grad_var
+
+  def dist_to_opt(self):
     beta = self.beta
-    # _, _, grad_avg_squared = state
-    self._grad_norm_avg = beta * self._grad_norm_avg + (1 - beta) * grad_norm
-    self._dist_to_opt_avg = beta * self._dist_to_opt_avg + (
-                                                           1 - beta) * self._grad_norm_avg / self._grad_norm_squared_avg
+    self._grad_norm_avg = beta * self._grad_norm_avg + (1 - beta) * math.sqrt(self._grad_norm_squared)
+    # self._h_avg = beta * self._h_avg + (1 - beta) * self._grad_norm_squared
+    # self._dist_to_opt_avg = beta * self._dist_to_opt_avg + (1 - beta) * self._grad_norm_avg / self._h_avg
+    self._dist_to_opt_avg = beta * self._dist_to_opt_avg + (1 - beta) * self._grad_norm_avg / self._grad_norm_squared_avg
     debias_factor = self.zero_debias_factor()
     return self._dist_to_opt_avg / debias_factor
 
@@ -110,49 +116,60 @@ class YFOptimizer(mx.optimizer.Optimizer):
                                                np.real(roots) < 1.0), np.imag(roots) < 1e-5)]
     if (root.size != 1):
       print C, D, h_min, h_max
-      print self.lr
-      print root
       raise ValueError
     dr = h_max / h_min
     mu_t = max(np.real(root)[0] ** 2, ((np.sqrt(dr) - 1) / (np.sqrt(dr) + 1)) ** 2)
     lr_t = (1.0 - math.sqrt(mu_t)) ** 2 / h_min
     return mu_t, lr_t
 
-  def after_apply(self, index, grad, state, grad_norm, lr, momentum):
+  def after_apply(self):
     beta = self.beta
-    self._grad_norm_squared_avg = self._grad_norm_squared_avg * beta + grad_norm ** 2 * (1 - beta)
-    h_min, h_max = self.curvature_range(grad_norm)
-    C = self.grad_variance(grad, state)
-    D = self.dist_to_opt(grad_norm)
-    if self._iter > 0:
+
+    self._grad_norm_squared = self._grad_norm_squared.asscalar()
+    self._grad_norm_squared_avg = self.beta * self._grad_norm_squared_avg + (1 - self.beta) * self._grad_norm_squared
+
+    h_min, h_max = self.curvature_range()
+    C = self.grad_variance().asscalar()
+    D = self.dist_to_opt()
+    #     res = [opt._h_max, opt._h_min, opt._grad_var, opt._dist_to_opt]
+    if self.num_update > 1:
       mu_t, lr_t = self.single_step_mu_lr(C, D, h_min, h_max)
-      self.mom_mult[index] = beta * momentum + (1 - beta) * mu_t
-      self.lr_mult[index] = (beta * lr + (1 - beta) * lr_t)/self.lr
-      # self.momentum = beta * momentum + (1 - beta) * mu_t
-      # self.lr = beta * lr + (1 - beta) * lr_t
-      # self.set_mom_mult({index: beta * momentum + (1 - beta) * mu_t})
-      # self.set_lr_mult({index: (beta * lr + (1 - beta) * lr_t) / self.lr})
+      self.momentum = beta * self.momentum + (1 - beta) * mu_t
+      self.lr = beta * self.lr + (1 - beta) * lr_t
+    self._test_res = [h_max, h_min, C, D, self.lr, self.momentum]
+    self.clear_grad_norm_info()
+
+  def is_end_iter(self):
+    if (self.num_update == 1) and (len(self._index_update_count) == len(self.idx2name)):
+      return True
+    elif (self.num_update > 1) and (np.min(self._index_update_count.values()) == self.num_update):
+      return True
+    else:
+      return False
 
   def update(self, index, weight, grad, state):
     assert (isinstance(weight, NDArray))
     assert (isinstance(grad, NDArray))
     lr = self._get_lr(index)
     wd = self._get_wd(index)
-    momentum = self._get_mom(index)
+    momentum = self.momentum
     self._update_count(index)
 
     kwargs = {'rescale_grad': self.rescale_grad}
     if self.momentum > 0:
       kwargs['momentum'] = momentum
-    if self.clip_gradient:
-      kwargs['clip_gradient'] = self.clip_gradient
+    # if self.clip_gradient:
+    #   kwargs['clip_gradient'] = self.clip_gradient
 
-    grad_norm = mx.ndarray.norm(grad).asscalar()
     if state is not None:
       mx.optimizer.sgd_mom_update(weight, grad, state[0], out=weight,
                                   lr=lr, wd=wd, **kwargs)
-      self.after_apply(index, grad, state, grad_norm, lr, momentum)
+      self.update_grad_norm_and_var(index, grad, state)
+      if self.is_end_iter():
+        # print self._grad_var.asscalar(), self._grad_norm_squared.asscalar()
+        # self.clear_grad_norm_info()
+        self.after_apply()
+      #   print self.lr, self.momentum
     else:
       mx.optimizer.sgd_update(weight, grad, out=weight,
                               lr=lr, wd=wd, **kwargs)
-    self._iter += 1

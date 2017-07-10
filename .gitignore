@@ -1,0 +1,7 @@
+*.gz
+*.ipynb
+data/
+*.pyc
+.DS_Store
+.idea/
+backup/
