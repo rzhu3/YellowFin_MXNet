@@ -3,3 +3,5 @@
 data/
 *.pyc
 .DS_Store
+.idea/
+backup/
