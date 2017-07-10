@@ -67,10 +67,10 @@ class YFOptimizer(mx.optimizer.Optimizer):
     self._grad_var = None
 
   def update_grad_norm_and_var(self, index, grad, state):
-    _, grad_avg, _ = state
+    _, grad_avg, grad_avg_squared = state
     # _, grad_avg = state
-    grad_avg[:] = self.beta * grad_avg + (1 - self.beta) * grad
-    # grad_avg_squared[:] = self.beta * grad_avg_squared + (1-self.beta) * square(grad)
+    grad_avg[:] = self.beta * grad_avg + (1. - self.beta) * grad
+    grad_avg_squared[:] = self.beta * grad_avg_squared + (1.-self.beta) * square(grad)
 
     grad_norm_squared = sum(grad * grad)
     if self._grad_norm_squared is None:
@@ -79,9 +79,9 @@ class YFOptimizer(mx.optimizer.Optimizer):
       self._grad_norm_squared += grad_norm_squared
 
     if self._grad_var is None:
-      self._grad_var = sum(grad_avg * grad_avg)
+      self._grad_var = sum(square(grad_avg))
     else:
-      self._grad_var += sum(grad_avg * grad_avg)
+      self._grad_var += sum(square(grad_avg))
 
   def curvature_range(self):
     curv_win = self._h_window
