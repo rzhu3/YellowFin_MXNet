@@ -30,13 +30,8 @@ class MyLoss(mx.operator.NumpyOp):
     y[:] = x
 
   def backward(self, out_grad, in_data, out_data, in_grad):
-    # l = in_data[1]
-    # l = l.reshape((l.size,)).astype(np.int)
-    # y = out_data[0]
     dx = in_grad[0]
     dx[:] = np.ones(dx.shape)
-    # dx[:] = y
-    # dx[np.arange(l.shape[0]), l] -= 1.0
 
 @mx.initializer.register
 class CustomInit(mx.initializer.Initializer):
@@ -99,9 +94,7 @@ def test_measurement(zero_debias=True):
   net = mx.sym.Variable('data')
   weight = mx.sym.Variable(name='fc1_weight')
   bias = mx.sym.Variable(name='fc1_bias')
-  # label_sym = mx.sym.Variable(name='label')
   net = mx.sym.FullyConnected(data=net, weight=weight, bias=bias, name='fc1', num_hidden=1)
-  # net = mx.sym.LinearRegressionOutput(net, name='linear_output')
   myloss = MyLoss()
   net = myloss(data=net, name='linear_output')
 
@@ -158,20 +151,17 @@ def test_measurement(zero_debias=True):
       if i == 0:
         continue
       if zero_debias:
-        if np.abs(target_h_max / (1 - 0.999 ** (i + 1)) - res[0]) >= np.abs(res[0]) * 1e-3:
-          print "iter ", i, " h max ", res[0], target_h_max/(1-0.999**(i + 1) ), \
-            " h min ", res[1], target_h_min/(1-0.999**(i + 1) ), \
-            " var ", res[2], target_var, \
-            " dist ", res[3], target_dist/(1-0.999**(i + 1) )
-
+        # print "iter ", i, " h max ", res[0], target_h_max/(1-0.999**(i + 1) ), \
+        #   " h min ", res[1], target_h_min/(1-0.999**(i + 1) ), \
+        #   " var ", res[2], target_var, \
+        #   " dist ", res[3], target_dist/(1-0.999**(i + 1) )
         assert np.abs(target_h_max / (1 - 0.999 ** (i + 1)) - res[0]) < np.abs(res[0]) * 1e-3
         assert np.abs(target_h_min / (1 - 0.999 ** (i + 1)) - res[1]) < np.abs(res[1]) * 1e-3
         assert np.abs(target_var - res[2]) < np.abs(target_var) * 1e-3
         assert np.abs(target_dist / (1 - 0.999 ** (i + 1)) - res[3]) < np.abs(res[3]) * 1e-3
       else:
-        if np.abs(target_h_max - res[0]) >= np.abs(target_h_max) * 1e-3:
-          print "iter ", i, " h max ", res[0], target_h_max, " h min ", res[1], target_h_min, \
-          " var ", res[2], target_var, " dist ", res[3], target_dist
+        # print "iter ", i, " h max ", res[0], target_h_max, " h min ", res[1], target_h_min, \
+        #   " var ", res[2], target_var, " dist ", res[3], target_dist
         assert np.abs(target_h_max - res[0]) < np.abs(target_h_max) * 1e-3
         assert np.abs(target_h_min - res[1]) < np.abs(target_h_min) * 1e-3
         assert np.abs(target_var - res[2]) < np.abs(res[2]) * 1e-3
@@ -190,9 +180,7 @@ def test_lr_mu(zero_debias=False):
   net = mx.sym.Variable('data')
   weight = mx.sym.Variable(name='fc1_weight')
   bias = mx.sym.Variable(name='fc1_bias')
-  # label_sym = mx.sym.Variable(name='label')
   net = mx.sym.FullyConnected(data=net, weight=weight, bias=bias, name='fc1', num_hidden=1)
-  # net = mx.sym.LinearRegressionOutput(net, name='linear_output')
   myloss = MyLoss()
   net = myloss(data=net, name='linear_output')
 

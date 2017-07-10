@@ -102,8 +102,6 @@ class YFOptimizer(mx.optimizer.Optimizer):
   def dist_to_opt(self):
     beta = self.beta
     self._grad_norm_avg = beta * self._grad_norm_avg + (1 - beta) * math.sqrt(self._grad_norm_squared)
-    # self._h_avg = beta * self._h_avg + (1 - beta) * self._grad_norm_squared
-    # self._dist_to_opt_avg = beta * self._dist_to_opt_avg + (1 - beta) * self._grad_norm_avg / self._h_avg
     self._dist_to_opt_avg = beta * self._dist_to_opt_avg + (1 - beta) * self._grad_norm_avg / self._grad_norm_squared_avg
     debias_factor = self.zero_debias_factor()
     return self._dist_to_opt_avg / debias_factor
@@ -114,9 +112,7 @@ class YFOptimizer(mx.optimizer.Optimizer):
     roots = np.roots(coef)
     root = roots[np.logical_and(np.logical_and(np.real(roots) > 0.0,
                                                np.real(roots) < 1.0), np.imag(roots) < 1e-5)]
-    if (root.size != 1):
-      print C, D, h_min, h_max
-      raise ValueError
+    assert root.size == 1
     dr = h_max / h_min
     mu_t = max(np.real(root)[0] ** 2, ((np.sqrt(dr) - 1) / (np.sqrt(dr) + 1)) ** 2)
     lr_t = (1.0 - math.sqrt(mu_t)) ** 2 / h_min
@@ -131,7 +127,6 @@ class YFOptimizer(mx.optimizer.Optimizer):
     h_min, h_max = self.curvature_range()
     C = self.grad_variance().asscalar()
     D = self.dist_to_opt()
-    #     res = [opt._h_max, opt._h_min, opt._grad_var, opt._dist_to_opt]
     if self.num_update > 1:
       mu_t, lr_t = self.single_step_mu_lr(C, D, h_min, h_max)
       self.momentum = beta * self.momentum + (1 - beta) * mu_t
@@ -158,18 +153,15 @@ class YFOptimizer(mx.optimizer.Optimizer):
     kwargs = {'rescale_grad': self.rescale_grad}
     if self.momentum > 0:
       kwargs['momentum'] = momentum
-    # if self.clip_gradient:
-    #   kwargs['clip_gradient'] = self.clip_gradient
+    if self.clip_gradient:
+      kwargs['clip_gradient'] = self.clip_gradient
 
     if state is not None:
       mx.optimizer.sgd_mom_update(weight, grad, state[0], out=weight,
                                   lr=lr, wd=wd, **kwargs)
       self.update_grad_norm_and_var(index, grad, state)
       if self.is_end_iter():
-        # print self._grad_var.asscalar(), self._grad_norm_squared.asscalar()
-        # self.clear_grad_norm_info()
         self.after_apply()
-      #   print self.lr, self.momentum
     else:
       mx.optimizer.sgd_update(weight, grad, out=weight,
                               lr=lr, wd=wd, **kwargs)
