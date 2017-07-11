@@ -5,8 +5,8 @@ from yellowfin import *
 import time
 
 
-n_dim = 1000000
-n_iter = 50
+n_dim = 100
+n_iter = 100
 
 class MyLoss(mx.operator.NumpyOp):
   def __init__(self):
@@ -107,7 +107,7 @@ def test_measurement(zero_debias=True):
   # initialize parameters by uniform random numbers
   mod.init_params(CustomInit())
   # use SGD with learning rate 0.1 to train
-  mod.init_optimizer(optimizer='YFOptimizer', optimizer_params=(('learning_rate', 1.0), ('momentum', 0.0), ('zero_bias', zero_debias)))
+  mod.init_optimizer(optimizer='YFOptimizer', optimizer_params=(('learning_rate', 1.0), ('momentum', 0.0), ('zero_debias', zero_debias)))
   # use accuracy as the metric
   metric = mx.metric.create('mse')
 
@@ -118,7 +118,6 @@ def test_measurement(zero_debias=True):
   g_avg = 0.0
   target_dist = 0.0
 
-  # train 5 epochs, i.e. going over the data iter one pass
   for epoch in range(n_iter):
     train_iter.reset()
     metric.reset()
@@ -193,7 +192,7 @@ def test_lr_mu(zero_debias=False):
   # initialize parameters by uniform random numbers
   mod.init_params(CustomInit())
   # use SGD with learning rate 0.1 to train
-  mod.init_optimizer(optimizer='YFOptimizer', optimizer_params=(('learning_rate', 1.0), ('momentum', 0.0), ('zero_bias', zero_debias)))
+  mod.init_optimizer(optimizer='YFOptimizer', optimizer_params=(('learning_rate', 1.0), ('momentum', 0.0), ('zero_debias', zero_debias)))
   # use accuracy as the metric
   metric = mx.metric.create('mse')
 
@@ -206,7 +205,6 @@ def test_lr_mu(zero_debias=False):
   target_lr = 1.0
   target_mu = 0.0
 
-  # train 5 epochs, i.e. going over the data iter one pass
   for epoch in range(n_iter):
     train_iter.reset()
     metric.reset()
@@ -267,7 +265,7 @@ def test_lr_mu(zero_debias=False):
         mu = np.real(mu)
         target_lr = 0.999 * target_lr + 0.001 * lr
         target_mu = 0.999 * target_mu + 0.001 * mu
-        # print "lr ", target_lr, res[4], " mu ", target_mu, res[5]
+        print "lr ", target_lr, res[4], " mu ", target_mu, res[5]
         assert target_lr == 0.0 or np.abs(target_lr - res[4]) < np.abs(res[4]) * 1e-3
         assert target_mu == 0.0 or np.abs(target_mu - res[5]) < np.abs(res[5]) * 5e-3
   print "lr and mu computing test passed!"
@@ -287,7 +285,7 @@ if __name__ == "__main__":
   start = time.time()
   test_lr_mu(zero_debias=False)
   end = time.time()
-  print "lr and mu test done with zero_debias in ", (end - start) / float(n_iter), " s/iter!"
+  print "lr and mu test done without zero_debias in ", (end - start) / float(n_iter), " s/iter!"
 
   start = time.time()
   test_lr_mu(zero_debias=True)
