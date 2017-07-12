@@ -9,12 +9,12 @@ train_iter = mx.io.MNISTIter(
 		          image="data/train-images-idx3-ubyte",
 			        label="data/train-labels-idx1-ubyte",
 				      data_shape=(28, 28), #data_shape=(784,),
-					    batch_size=batch_size, shuffle=True, flat=False, silent=False, seed=10)
+					    batch_size=batch_size, shuffle=False, flat=False, silent=False, seed=10)
 val_iter = mx.io.MNISTIter(
               image="data/t10k-images-idx3-ubyte",
 			        label="data/t10k-labels-idx1-ubyte",
 				      data_shape=(28, 28), #data_shape=(784,),
-					    batch_size=batch_size, shuffle=True, flat=False, silent=False)
+					    batch_size=batch_size, shuffle=False, flat=False, silent=False)
 
 data = mx.sym.var('data')
 def get_lenet(data):
@@ -56,16 +56,16 @@ logging.getLogger().setLevel(logging.DEBUG)  # logging to stdout
 # create a trainable module on CPU
 model = mx.mod.Module(symbol=model, context=mx.cpu())
 
-# initializer = mx.init.Xavier(rnd_type='gaussian', factor_type="in", magnitude=2)
+initializer = mx.init.Xavier(rnd_type='gaussian', factor_type="in", magnitude=2)
 
 model.fit(train_iter,  # train data
               eval_data=val_iter,  # validation data
               optimizer='YFOptimizer',  # use SGD to train
-              optimizer_params={'learning_rate':0.1, 'momentum': 0.0, 'zero_bias': True},  # use fixed learning rate
+              optimizer_params={'learning_rate':0.1, 'momentum': 0.0, 'zero_debias': False},  # use fixed learning rate
               eval_metric='acc',  # report accuracy during training
               batch_end_callback = mx.callback.Speedometer(batch_size, 100), # output progress for each 100 data batches
-              # initializer=initializer,
-              num_epoch=10)  # train for at most 10 dataset passes
+              initializer=initializer,
+              num_epoch=1)  # train for at most 10 dataset passes
 
 test_iter = mx.io.NDArrayIter(mnist['test_data'], None, batch_size)
 prob = model.predict(test_iter)

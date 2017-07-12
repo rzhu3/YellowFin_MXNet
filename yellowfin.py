@@ -1,7 +1,6 @@
 import numpy as np
 import math
 import mxnet as mx
-from mxnet.ndarray import zeros, NDArray, square, sqrt, abs, sum, norm
 
 @mx.optimizer.Optimizer.register
 class YFOptimizer(mx.optimizer.Optimizer):
@@ -24,12 +23,12 @@ class YFOptimizer(mx.optimizer.Optimizer):
   zero_bias: bool, optional
   """
 
-  def __init__(self, momentum=0.0, beta=0.999, curv_win_width=20, zero_bias=True, **kwargs):
+  def __init__(self, momentum=0.0, beta=0.999, curv_win_width=20, zero_debias=True, **kwargs):
     super(YFOptimizer, self).__init__(**kwargs)
     self.momentum = momentum
     self.beta = beta
     self.curv_win_width = 20
-    self.zero_bias = zero_bias
+    self.zero_debias = zero_debias
     # The following are global states for YF tuner
     # 1. Calculate grad norm for all indices
     self._grad_norm = None
@@ -51,13 +50,13 @@ class YFOptimizer(mx.optimizer.Optimizer):
     self._test_res = []
 
   def create_state(self, index, weight):
-    momentum = zeros(weight.shape, weight.context, dtype=weight.dtype)
-    grad_avg = zeros(weight.shape, weight.context, dtype=weight.dtype)
-    grad_avg_squared = zeros(weight.shape, weight.context, dtype=weight.dtype)
+    momentum = mx.nd.zeros(weight.shape, weight.context, dtype=weight.dtype)
+    grad_avg = mx.nd.zeros(weight.shape, weight.context, dtype=weight.dtype)
+    grad_avg_squared = mx.nd.zeros(weight.shape, weight.context, dtype=weight.dtype)
     return momentum, grad_avg, grad_avg_squared
 
   def zero_debias_factor(self):
-    if not self.zero_bias:
+    if not self.zero_debias:
       return 1.0
     return 1.0 - self.beta ** (self.num_update)
 
@@ -70,18 +69,20 @@ class YFOptimizer(mx.optimizer.Optimizer):
     _, grad_avg, grad_avg_squared = state
     # _, grad_avg = state
     grad_avg[:] = self.beta * grad_avg + (1. - self.beta) * grad
-    grad_avg_squared[:] = self.beta * grad_avg_squared + (1.-self.beta) * square(grad)
+    grad_avg_squared[:] = self.beta * grad_avg_squared + (1. - self.beta) * mx.nd.square(grad)
 
-    grad_norm_squared = sum(grad * grad)
+    # grad_norm_squared = sum(grad * grad)
+    grad_norm_squared = mx.ndarray.sum(grad * grad)
+    # print(grad_norm_squared.shape)
     if self._grad_norm_squared is None:
       self._grad_norm_squared = grad_norm_squared
     else:
       self._grad_norm_squared += grad_norm_squared
 
     if self._grad_var is None:
-      self._grad_var = sum(square(grad_avg))
+      self._grad_var = mx.ndarray.sum(grad_avg * grad_avg)
     else:
-      self._grad_var += sum(square(grad_avg))
+      self._grad_var += mx.ndarray.sum(grad_avg * grad_avg)
 
   def curvature_range(self):
     curv_win = self._h_window
@@ -143,8 +144,8 @@ class YFOptimizer(mx.optimizer.Optimizer):
       return False
 
   def update(self, index, weight, grad, state):
-    assert (isinstance(weight, NDArray))
-    assert (isinstance(grad, NDArray))
+    assert (isinstance(weight, mx.nd.NDArray))
+    assert (isinstance(grad, mx.nd.NDArray))
     lr = self._get_lr(index)
     wd = self._get_wd(index)
     momentum = self.momentum
@@ -161,6 +162,7 @@ class YFOptimizer(mx.optimizer.Optimizer):
                                   lr=lr, wd=wd, **kwargs)
       self.update_grad_norm_and_var(index, grad, state)
       if self.is_end_iter():
+        print self.lr, self.momentum
         self.after_apply()
     else:
       mx.optimizer.sgd_update(weight, grad, out=weight,
