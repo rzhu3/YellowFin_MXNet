@@ -61,7 +61,7 @@ initializer = mx.init.Xavier(rnd_type='gaussian', factor_type="in", magnitude=2)
 model.fit(train_iter,  # train data
               eval_data=val_iter,  # validation data
               optimizer='YFOptimizer',  # use SGD to train
-              optimizer_params={'learning_rate':0.1, 'momentum': 0.0, 'zero_debias': False},  # use fixed learning rate
+              optimizer_params={'rescale_grad': 1./batch_size, 'learning_rate':0.1, 'momentum': 0.0, 'zero_debias': False},  # use fixed learning rate
               eval_metric='acc',  # report accuracy during training
               batch_end_callback = mx.callback.Speedometer(batch_size, 100), # output progress for each 100 data batches
               initializer=initializer,

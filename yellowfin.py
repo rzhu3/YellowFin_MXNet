@@ -160,9 +160,8 @@ class YFOptimizer(mx.optimizer.Optimizer):
     if state is not None:
       mx.optimizer.sgd_mom_update(weight, grad, state[0], out=weight,
                                   lr=lr, wd=wd, **kwargs)
-      self.update_grad_norm_and_var(index, grad, state)
+      self.update_grad_norm_and_var(index, grad*self.rescale_grad, state)
       if self.is_end_iter():
-        print self.lr, self.momentum
         self.after_apply()
     else:
       mx.optimizer.sgd_update(weight, grad, out=weight,
